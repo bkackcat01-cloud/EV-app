@@ -36,7 +36,7 @@ h1, h2, h3 {
 # =========================
 st.markdown("""
 # Malaysia EV Charging Tracker
-<small style="color:gray">Clean EV charging cost & usage dashboard</small>
+<small style="color:gray">EV charging cost & usage insights</small>
 """, unsafe_allow_html=True)
 
 # =========================
@@ -56,6 +56,7 @@ else:
 
 if not df.empty:
     df["Month"] = df["Date"].dt.to_period("M").astype(str)
+    df["Day"] = df["Date"].dt.day_name()
 
 # =========================
 # SIDEBAR FILTER
@@ -73,11 +74,10 @@ with st.sidebar:
 # =========================
 # TABS
 # =========================
-tab_log, tab_overview, tab_analysis, tab_location, tab_data = st.tabs([
+tab_log, tab_overview, tab_insights, tab_data = st.tabs([
     "➕ Log Session",
     "📊 Overview",
-    "📈 Analysis",
-    "📍 Locations",
+    "📈 Insights",
     "🗂 Data"
 ])
 
@@ -164,85 +164,68 @@ with tab_overview:
         m3.metric("Energy Used", f"{df['kWh'].sum():.1f} kWh")
         m4.metric("Sessions", len(df))
 
-        fig = px.pie(
-            df,
-            names="Provider",
-            values="Total Cost",
-            hole=0.5,
-            title="Spending by Provider"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
 # =========================
-# TAB 3 — ANALYSIS
+# TAB 3 — INSIGHTS (YOUR REQUESTED GRAPHS)
 # =========================
-with tab_analysis:
+with tab_insights:
 
     if df.empty:
         st.info("No data available yet.")
     else:
         col1, col2 = st.columns(2)
 
+        # --- Session Duration Proxy ---
         with col1:
-            daily_df = df.groupby(df["Date"].dt.date)["Total Cost"].sum().reset_index()
-
-            fig_daily = px.bar(
-                daily_df,
-                x="Date",
-                y="Total Cost",
-                title="Daily Spending"
-            )
-            st.plotly_chart(fig_daily, use_container_width=True)
-
-            fig_type = px.pie(
-                df,
-                names="Type",
-                hole=0.5,
-                title="AC vs DC"
-            )
-            st.plotly_chart(fig_type, use_container_width=True)
-
-        with col2:
-            fig_scatter = px.scatter(
+            fig_kwh = px.histogram(
                 df,
                 x="kWh",
-                y="Total Cost",
-                color="Provider",
-                size="Cost_per_kWh",
-                title="Cost vs Energy",
-                hover_data=["Location"]
+                nbins=20,
+                title="Charging Session Size (kWh)"
             )
-            st.plotly_chart(fig_scatter, use_container_width=True)
+            st.plotly_chart(fig_kwh, use_container_width=True)
 
-# =========================
-# TAB 4 — LOCATIONS
-# =========================
-with tab_location:
+        # --- AC vs DC Cost Comparison ---
+        with col2:
+            type_cost = (
+                df.groupby("Type")["Cost_per_kWh"]
+                .mean()
+                .reset_index()
+            )
 
-    if df.empty or df["Location"].dropna().empty:
-        st.info("No location data available yet.")
-    else:
-        top_locations = (
-            df[df["Location"].notna() & (df["Location"] != "")]
-            .groupby("Location")["Total Cost"]
+            fig_type_cost = px.bar(
+                type_cost,
+                x="Type",
+                y="Cost_per_kWh",
+                title="Average Cost per kWh: AC vs DC"
+            )
+            st.plotly_chart(fig_type_cost, use_container_width=True)
+
+        st.divider()
+
+        # --- Heatmap: Charging Behavior by Day ---
+        day_order = [
+            "Monday", "Tuesday", "Wednesday",
+            "Thursday", "Friday", "Saturday", "Sunday"
+        ]
+
+        heatmap_df = (
+            df.groupby("Day")["Total Cost"]
             .sum()
-            .sort_values(ascending=False)
-            .head(5)
+            .reindex(day_order)
             .reset_index()
         )
 
-        fig_loc = px.bar(
-            top_locations,
-            x="Location",
-            y="Total Cost",
-            text="Total Cost",
-            title="Top 5 Locations by Spending"
+        fig_heatmap = px.imshow(
+            heatmap_df[["Total Cost"]].T,
+            x=heatmap_df["Day"],
+            aspect="auto",
+            title="Charging Spend by Day of Week"
         )
-        fig_loc.update_traces(texttemplate="%{text:.2f}", textposition="outside")
-        st.plotly_chart(fig_loc, use_container_width=True)
+
+        st.plotly_chart(fig_heatmap, use_container_width=True)
 
 # =========================
-# TAB 5 — DATA
+# TAB 4 — DATA
 # =========================
 with tab_data:
 

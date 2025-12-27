@@ -120,15 +120,17 @@ if os.path.isfile(FILE_NAME):
     # --- Top 5 Locations ---
     st.divider()
     st.subheader("📍 Top 5 Locations by Total Cost")
-    top_locations = df.groupby("Location")["Total Cost"].sum().sort_values(ascending=False).head(5).reset_index()
-    fig_top_locations = px.bar(
+    top_locations = df[df['Location'].notna()].groupby("Location")["Total Cost"].sum().sort_values(ascending=False).head(5).reset_index()
+        fig_top_locations = px.bar(
         top_locations,
         x="Location",
         y="Total Cost",
         title=f"Top 5 Locations by Total Cost ({CURRENCY})",
         color="Total Cost",
-        color_continuous_scale='Viridis'
+        color_continuous_scale='Viridis',
+        text="Total Cost"
     )
+    fig_top_locations.update_traces(texttemplate='%{text:.2f}', textposition='outside')
     st.plotly_chart(fig_top_locations, use_container_width=True)
 
     # --- Raw Data with Edit Option ---
@@ -141,3 +143,4 @@ if os.path.isfile(FILE_NAME):
 
 else:
     st.info("Awaiting data... Log a session above to see the analysis!")
+

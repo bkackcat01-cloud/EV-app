@@ -1,0 +1,4 @@
+﻿,Date,Provider,Location,Type,kWh,Total Cost,Cost_per_kWh,Month
+2,2025-12-26T00:00:00.000,Rexcharge,Mytown,AC,9.23,11.01,1.193,2025-12
+1,2025-12-25T00:00:00.000,JomCharge,,DC,8.34,12.51,1.5,2025-12
+0,2025-12-24T00:00:00.000,JomCharge,Youcity 3,DC,8.04,12.06,1.5,2025-12

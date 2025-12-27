@@ -10,7 +10,7 @@ CURRENCY = "MYR"
 st.set_page_config(page_title="Malaysia EV Tracker", page_icon="⚡", layout="wide")
 st.title("🇲🇾 Malaysia EV Charging Tracker")
 
-# --- 1. INSTANT INPUT SECTION (Outside Form) ---
+# --- 1. INSTANT INPUT SECTION ---
 st.subheader("📝 Record New Session")
 
 providers = [
@@ -84,7 +84,7 @@ if os.path.isfile(FILE_NAME):
         st.warning("⚠️ No data for the selected month.")
         st.stop()
 
-    # Key Metrics
+    # --- Key Metrics ---
     st.divider()
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Total Spent", f"{CURRENCY} {df['Total Cost'].sum():.2f}")
@@ -92,24 +92,8 @@ if os.path.isfile(FILE_NAME):
     m3.metric("Total Energy", f"{df['kWh'].sum():.1f} kWh")
     m4.metric("Sessions", len(df))
 
-    # GRAPHS
+    # --- GRAPHS ---
     col_a, col_b = st.columns(2)
-
-    # --- Top 5 Locations ---
-st.divider()
-st.subheader("📍 Top 5 Locations by Total Cost")
-
-top_locations = df.groupby("Location")["Total Cost"].sum().sort_values(ascending=False).head(5).reset_index()
-fig_top_locations = px.bar(
-    top_locations,
-    x="Location",
-    y="Total Cost",
-    title=f"Top 5 Locations by Total Cost ({CURRENCY})",
-    color="Total Cost",
-    color_continuous_scale='Viridis'
-)
-st.plotly_chart(fig_top_locations, use_container_width=True)
-
 
     with col_a:
         daily_df = df.groupby(df['Date'].dt.date)['Total Cost'].sum().reset_index()
@@ -133,6 +117,20 @@ st.plotly_chart(fig_top_locations, use_container_width=True)
                                  hover_data=['Location'])
         st.plotly_chart(fig_scatter, use_container_width=True)
 
+    # --- Top 5 Locations ---
+    st.divider()
+    st.subheader("📍 Top 5 Locations by Total Cost")
+    top_locations = df.groupby("Location")["Total Cost"].sum().sort_values(ascending=False).head(5).reset_index()
+    fig_top_locations = px.bar(
+        top_locations,
+        x="Location",
+        y="Total Cost",
+        title=f"Top 5 Locations by Total Cost ({CURRENCY})",
+        color="Total Cost",
+        color_continuous_scale='Viridis'
+    )
+    st.plotly_chart(fig_top_locations, use_container_width=True)
+
     # --- Raw Data with Edit Option ---
     with st.expander("📂 View & Edit Raw Data Log"):
         edited_df = st.data_editor(df.sort_values(by="Date", ascending=False), num_rows="dynamic")
@@ -140,6 +138,6 @@ st.plotly_chart(fig_top_locations, use_container_width=True)
         if st.button("💾 Save Changes"):
             edited_df.to_csv(FILE_NAME, index=False)
             st.success("✅ Changes saved successfully!")
+
 else:
     st.info("Awaiting data... Log a session above to see the analysis!")
-

@@ -1,287 +1,213 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import os
-import time
-from geopy.geocoders import Nominatim
 import pydeck as pdk
+from geopy.geocoders import Nominatim
+from datetime import datetime
+import time
 
-# =========================
+# ===============================
 # CONFIG
-# =========================
-RAWDATA = "rawdata.csv"
-CURRENCY = "MYR"
-
+# ===============================
 st.set_page_config(
-    page_title="Malaysia EV Charging Tracker",
+    page_title="Malaysia EV Charging Dashboard",
     page_icon="⚡",
     layout="wide"
 )
 
-px.defaults.template = "simple_white"
+FILE_NAME = "ev_charging_log_my.csv"
 
-# =========================
-# STYLE
-# =========================
-st.markdown("""
-<style>
-section[data-testid="stSidebar"] { background-color: #fafafa; }
-h1, h2, h3 { font-weight: 600; }
-</style>
-""", unsafe_allow_html=True)
-
-# =========================
-# HEADER
-# =========================
-st.markdown("""
-# Malaysia EV Charging Tracker  
-<small style="color:gray">EV charging cost & usage insights</small>
-""", unsafe_allow_html=True)
-
-# =========================
+# ===============================
 # LOAD DATA
-# =========================
-EXPECTED_COLUMNS = [
-    "Date", "Provider", "Location", "Type",
-    "kWh", "Total Cost", "Cost_per_kWh",
-    "Month", "Latitude", "Longitude"
-]
+# ===============================
+@st.cache_data
+def load_data():
+    df = pd.read_csv(FILE_NAME)
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    return df
 
-if os.path.isfile(RAWDATA):
-    df = pd.read_csv(RAWDATA)
-    df["Date"] = pd.to_datetime(df["Date"])
-else:
-    df = pd.DataFrame(columns=EXPECTED_COLUMNS)
+df = load_data()
 
-if not df.empty:
-    df["Month"] = df["Date"].dt.to_period("M").astype(str)
-    weekdays = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
-    df["Day"] = pd.Categorical(df["Date"].dt.day_name(), categories=weekdays, ordered=True)
+st.title("⚡ Malaysia EV Charging Analytics")
 
-# =========================
-# FREE AUTO-GEOCODING (CACHED)
-# =========================
-if not df.empty:
-    if "Latitude" not in df.columns:
-        df["Latitude"] = None
-    if "Longitude" not in df.columns:
-        df["Longitude"] = None
+if df.empty:
+    st.error("CSV is empty or not found.")
+    st.stop()
 
-    geolocator = Nominatim(user_agent="ev_tracker_app")
+# ===============================
+# FREE AUTO GEOCODING (OSM)
+# ===============================
+@st.cache_data
+def geocode_locations(locations):
+    geolocator = Nominatim(user_agent="ev-charging-app")
+    coords = {}
 
-    missing_locations = df[
-        df["Location"].notna() &
-        ((df["Latitude"].isna()) | (df["Longitude"].isna()))
-    ]["Location"].unique()
-
-    if len(missing_locations) > 0:
-        with st.spinner("📍 Geocoding new locations (free OpenStreetMap)..."):
-            for loc in missing_locations:
-                try:
-                    geo = geolocator.geocode(f"{loc}, Malaysia")
-                    if geo:
-                        df.loc[df["Location"] == loc, "Latitude"] = geo.latitude
-                        df.loc[df["Location"] == loc, "Longitude"] = geo.longitude
-                    time.sleep(1)  # Nominatim rate limit
-                except Exception:
-                    pass
-        df.to_csv(RAWDATA, index=False)
-
-# =========================
-# SIDEBAR FILTER
-# =========================
-with st.sidebar:
-    st.header("Filters")
-    if not df.empty:
-        months = sorted(df["Month"].unique(), reverse=True)
-        selected_month = st.selectbox("Month", ["All"] + months)
-        if selected_month != "All":
-            df = df[df["Month"] == selected_month]
-
-# =========================
-# TABS
-# =========================
-tab_log, tab_overview, tab_insights, tab_locations, tab_data = st.tabs([
-    "➕ Log Session",
-    "📊 Overview",
-    "📈 Insights",
-    "📍 Locations",
-    "🗂 Data"
-])
-
-# =========================
-# TAB — LOG SESSION
-# =========================
-with tab_log:
-    providers = [
-        "Gentari","JomCharge","chargEV","Shell Recharge",
-        "TNB Electron","ChargeSini","Tesla Supercharger",
-        "DC Handal","Home","Other"
-    ]
-
-    col1, col2 = st.columns(2)
-    with col1:
-        provider = st.selectbox("Provider", providers)
-    with col2:
-        other_provider = st.text_input("Custom Provider", disabled=(provider != "Other"))
-
-    with st.form("log_form", clear_on_submit=True):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            date_val = st.date_input("Date")
-            location = st.text_input("Location")
-        with c2:
-            charge_type = st.radio("Type", ["AC","DC"], horizontal=True)
-            kwh = st.number_input("Energy (kWh)", min_value=0.1, step=0.1)
-        with c3:
-            cost = st.number_input(f"Total Cost ({CURRENCY})", min_value=0.0, step=0.01)
-
-        if st.form_submit_button("Save Session"):
-            final_provider = other_provider.strip() if provider == "Other" else provider
-            if not final_provider:
-                st.error("Provider name required")
+    for loc in locations:
+        try:
+            geo = geolocator.geocode(f"{loc}, Malaysia")
+            if geo:
+                coords[loc] = (geo.latitude, geo.longitude)
             else:
-                new = pd.DataFrame([{
-                    "Date": pd.to_datetime(date_val),
-                    "Provider": final_provider,
-                    "Location": location.strip(),
-                    "Type": charge_type,
-                    "kWh": kwh,
-                    "Total Cost": cost,
-                    "Cost_per_kWh": round(cost / kwh, 3),
-                    "Month": str(pd.to_datetime(date_val).to_period("M"))
-                }])
-                new.to_csv(RAWDATA, mode="a", header=not os.path.exists(RAWDATA), index=False)
-                st.success("Session saved")
-                st.rerun()
+                coords[loc] = (None, None)
+            time.sleep(1)  # respect free API rate
+        except:
+            coords[loc] = (None, None)
 
-# =========================
-# TAB — OVERVIEW
-# =========================
-with tab_overview:
-    if df.empty:
-        st.info("No data yet.")
-    else:
-        a,b,c,d = st.columns(4)
-        a.metric("Total Spent", f"{CURRENCY} {df['Total Cost'].sum():.2f}")
-        b.metric("Avg / kWh", f"{CURRENCY} {df['Cost_per_kWh'].mean():.2f}")
-        c.metric("Energy Used", f"{df['kWh'].sum():.1f} kWh")
-        d.metric("Sessions", len(df))
+    return coords
 
-# =========================
-# TAB — INSIGHTS
-# =========================
+
+if "Latitude" not in df.columns or "Longitude" not in df.columns:
+    st.info("📍 Auto-geocoding locations (free OpenStreetMap)")
+    loc_map = geocode_locations(df["Location"].dropna().unique())
+    df["Latitude"] = df["Location"].map(lambda x: loc_map.get(x, (None, None))[0])
+    df["Longitude"] = df["Location"].map(lambda x: loc_map.get(x, (None, None))[1])
+
+# ===============================
+# DERIVED FEATURES
+# ===============================
+df["Cost_per_kWh"] = df["Total Cost"] / df["kWh"]
+
+# Session duration proxy (if no time)
+df["Session_Duration_Proxy"] = df["kWh"] / df.groupby("Type")["kWh"].transform("mean")
+
+df["Hour"] = df["Date"].dt.hour
+df["Day"] = df["Date"].dt.day_name()
+
+# ===============================
+# TABS
+# ===============================
+tab_insights, tab_location = st.tabs(["📊 Insights", "📍 Locations"])
+
+# ======================================================
+# INSIGHTS TAB
+# ======================================================
 with tab_insights:
-    if df.empty:
-        st.info("No data yet.")
-    else:
-        c1, c2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
-        with c1:
-            daily = df.groupby(df["Date"].dt.date)["Total Cost"].sum().reset_index()
-            st.plotly_chart(px.bar(daily, x="Date", y="Total Cost", title="Daily Spending"), True)
-
-            st.plotly_chart(px.pie(df, names="Type", hole=0.5, title="AC vs DC"), True)
-
-            df_valid = df[df["kWh"] > 0]
-            df_valid["Duration_Proxy"] = df_valid["Total Cost"] / df_valid["kWh"]
-            st.plotly_chart(px.histogram(df_valid, x="Duration_Proxy", title="Session Duration Proxy"), True)
-
-        with c2:
-            st.plotly_chart(px.scatter(df, x="kWh", y="Total Cost", color="Provider",
-                                        size="Cost_per_kWh", hover_data=["Location"],
-                                        title="Cost vs Energy"), True)
-
-            acdc = df.groupby("Type")["Total Cost"].mean().reset_index()
-            st.plotly_chart(px.bar(acdc, x="Type", y="Total Cost", title="Avg Cost: AC vs DC"), True)
-
-            heat = df.groupby(["Day","Type"])["kWh"].sum().reset_index()
-            st.plotly_chart(px.density_heatmap(heat, x="Day", y="Type", z="kWh",
-                                                title="Charging Behavior by Day"), True)
-
-# =========================
-# TAB — LOCATIONS (MAP)
-# =========================
-with tab_locations:
-    if df.empty:
-        st.info("No location data yet.")
-    else:
-        loc_stats = (
-            df[df["Location"].notna()]
-            .groupby("Location")
-            .agg(
-                Sessions=("Location","count"),
-                Total_Cost=("Total Cost","sum"),
-                Total_kWh=("kWh","sum"),
-                Latitude=("Latitude","first"),
-                Longitude=("Longitude","first")
-            )
-            .reset_index()
-            .dropna(subset=["Latitude","Longitude"])
+    with col1:
+        daily_df = (
+            df.groupby(df["Date"].dt.date)["Total Cost"]
+            .sum()
+            .reset_index(name="Total Cost")
         )
 
-        if loc_stats.empty:
-            st.warning("No geocoded locations available.")
-        else:
-            st.subheader("📍 Charging Sessions Map")
+        fig_daily = px.bar(
+            daily_df,
+            x="Date",
+            y="Total Cost",
+            title="📅 Daily Charging Spend (MYR)"
+        )
+        st.plotly_chart(fig_daily, use_container_width=True)
 
-            # BIG, readable popup content
-            loc_stats["popup"] = loc_stats.apply(
-                lambda r: (
-                    f"<b>{r.Location}</b><br/>"
-                    f"🔌 Sessions: {r.Sessions}<br/>"
-                    f"⚡ Energy: {r.Total_KWh:.1f} kWh<br/>"
-                    f"💰 Total Cost: MYR {r.Total_Cost:.2f}"
-                ),
-                axis=1
-            )
+        fig_type = px.pie(
+            df,
+            names="Type",
+            values="Total Cost",
+            hole=0.5,
+            title="🔌 AC vs DC Cost Distribution"
+        )
+        st.plotly_chart(fig_type, use_container_width=True)
 
-            deck = pdk.Deck(
-                initial_view_state=pdk.ViewState(
-                    latitude=loc_stats["Latitude"].mean(),
-                    longitude=loc_stats["Longitude"].mean(),
-                    zoom=6,
-                    pitch=0
-                ),
-                layers=[
-                    pdk.Layer(
-                        "ScatterplotLayer",
-                        data=loc_stats,
-                        get_position=["Longitude","Latitude"],
-                        get_radius="Sessions * 800",   # 👈 BIG circles
-                        radius_min_pixels=15,          # 👈 Always visible
-                        radius_max_pixels=80,
-                        get_fill_color=[0, 140, 255, 180],
-                        get_line_color=[255, 255, 255],
-                        line_width_min_pixels=2,
-                        pickable=True
-                    )
-                ],
-                tooltip={
-                    "html": "{popup}",
-                    "style": {
-                        "backgroundColor": "white",
-                        "color": "black",
-                        "fontSize": "14px",
-                        "padding": "10px",
-                        "borderRadius": "8px",
-                        "boxShadow": "0 4px 12px rgba(0,0,0,0.15)"
-                    }
-                }
-            )
+    with col2:
+        fig_scatter = px.scatter(
+            df,
+            x="kWh",
+            y="Total Cost",
+            color="Provider",
+            size="Cost_per_kWh",
+            title="💰 Cost vs Energy",
+            hover_data=["Location"]
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
 
-            st.pydeck_chart(deck, use_container_width=True)
+        fig_duration = px.box(
+            df,
+            x="Type",
+            y="Session_Duration_Proxy",
+            title="⏱ Session Duration Proxy (AC vs DC)"
+        )
+        st.plotly_chart(fig_duration, use_container_width=True)
 
-# =========================
-# TAB — DATA
-# =========================
-with tab_data:
-    if df.empty:
-        st.info("No data yet.")
+    # Heatmap
+    heat_df = (
+        df.groupby(["Day", "Hour"])
+        .size()
+        .reset_index(name="Sessions")
+    )
+
+    fig_heat = px.density_heatmap(
+        heat_df,
+        x="Hour",
+        y="Day",
+        z="Sessions",
+        color_continuous_scale="Turbo",
+        title="🔥 Charging Behavior Heatmap (Day vs Hour)"
+    )
+    st.plotly_chart(fig_heat, use_container_width=True)
+
+# ======================================================
+# LOCATION TAB — BIG POPUPS MAP
+# ======================================================
+with tab_location:
+    loc_stats = (
+        df.dropna(subset=["Latitude", "Longitude"])
+        .groupby("Location")
+        .agg(
+            Sessions=("Location", "count"),
+            Total_Cost=("Total Cost", "sum"),
+            Total_kWh=("kWh", "sum"),
+            Latitude=("Latitude", "first"),
+            Longitude=("Longitude", "first")
+        )
+        .reset_index()
+    )
+
+    if loc_stats.empty:
+        st.warning("No valid geocoded locations.")
     else:
-        edited = st.data_editor(df.sort_values("Date", ascending=False), num_rows="dynamic")
-        if st.button("Save Changes"):
-            edited.to_csv(RAWDATA, index=False)
-            st.success("Saved")
-            st.rerun()
+        st.subheader("📍 Charging Sessions by Location")
 
+        loc_stats["popup"] = loc_stats.apply(
+            lambda r: (
+                f"<b>{r.Location}</b><br/>"
+                f"🔌 Sessions: {r.Sessions}<br/>"
+                f"⚡ Energy: {r.Total_kWh:.1f} kWh<br/>"
+                f"💰 Cost: MYR {r.Total_Cost:.2f}"
+            ),
+            axis=1
+        )
+
+        deck = pdk.Deck(
+            initial_view_state=pdk.ViewState(
+                latitude=loc_stats["Latitude"].mean(),
+                longitude=loc_stats["Longitude"].mean(),
+                zoom=6
+            ),
+            layers=[
+                pdk.Layer(
+                    "ScatterplotLayer",
+                    data=loc_stats,
+                    get_position=["Longitude", "Latitude"],
+                    get_radius="Sessions * 800",
+                    radius_min_pixels=15,
+                    radius_max_pixels=80,
+                    get_fill_color=[0, 140, 255, 180],
+                    get_line_color=[255, 255, 255],
+                    line_width_min_pixels=2,
+                    pickable=True
+                )
+            ],
+            tooltip={
+                "html": "{popup}",
+                "style": {
+                    "backgroundColor": "white",
+                    "color": "black",
+                    "fontSize": "14px",
+                    "padding": "12px",
+                    "borderRadius": "10px",
+                    "boxShadow": "0 6px 18px rgba(0,0,0,0.25)"
+                }
+            }
+        )
+
+        st.pydeck_chart(deck, use_container_width=True)

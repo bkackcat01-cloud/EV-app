@@ -4,7 +4,7 @@ import plotly.express as px
 import os
 
 # --- Configuration ---
-FILE_NAME = 'ev_charging_log_my.csv'
+RAWDATA = 'ev_charging_log_my.csv'
 CURRENCY = "MYR"
 
 st.set_page_config(page_title="Malaysia EV Tracker", page_icon="⚡", layout="wide")
@@ -62,15 +62,15 @@ with st.form("charging_form", clear_on_submit=True):
                 "Cost_per_kWh": round(cost_per_kwh, 3)
             }])
 
-            if not os.path.isfile(FILE_NAME):
-                new_data.to_csv(FILE_NAME, index=False)
+            if not os.path.isfile(RAWDATA):
+                new_data.to_csv(RAWDATA, index=False)
             else:
-                new_data.to_csv(FILE_NAME, mode='a', header=False, index=False)
+                new_data.to_csv(RAWDATA, mode='a', header=False, index=False)
             st.success(f"Successfully recorded session for {final_provider}!")
 
 # --- 3. ANALYTICS SECTION ---
-if os.path.isfile(FILE_NAME):
-    df = pd.read_csv(FILE_NAME)
+if os.path.isfile(RAWDATA):
+    df = pd.read_csv(RAWDATA)
     df['Date'] = pd.to_datetime(df['Date'])
     df['Location'] = df['Location'].astype(str)  # 确保 Location 是字符串
 
@@ -139,8 +139,9 @@ if os.path.isfile(FILE_NAME):
         edited_df = st.data_editor(df.sort_values(by="Date", ascending=False), num_rows="dynamic")
         st.markdown("### ⚡ Save Edited Data")
         if st.button("💾 Save Changes"):
-            edited_df.to_csv(FILE_NAME, index=False)
+            edited_df.to_csv(RAWDATA, index=False)
             st.success("✅ Changes saved successfully!")
 
 else:
     st.info("Awaiting data... Log a session above to see the analysis!")
+

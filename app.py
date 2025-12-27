@@ -101,22 +101,22 @@ if os.path.isfile(RAWDATA):
         fig_daily = px.bar(daily_df, x='Date', y='Total Cost', 
                            title=f"Spending per Day ({CURRENCY})", 
                            color_discrete_sequence=['#00CC96'])
-        st.plotly_chart(fig_daily, use_container_width=True)
+        st.plotly_chart(fig, width="container")
 
         fig_provider = px.pie(df, names='Provider', values='Total Cost', 
                               title="Spending by Provider", hole=0.4)
-        st.plotly_chart(fig_provider, use_container_width=True)
+        st.plotly_chart(fig, width="container")
 
     with col_b:
         fig_type = px.pie(df, names='Type', title="Charging Type Frequency (AC vs DC)", 
                           color_discrete_map={'AC':'#636EFA', 'DC':'#EF553B'})
-        st.plotly_chart(fig_type, use_container_width=True)
+        st.plotly_chart(fig, width="container")
 
         fig_scatter = px.scatter(df, x="kWh", y="Total Cost", color="Provider", size="Cost_per_kWh", 
                                  title="Cost vs Energy (Size = Price per kWh)", 
                                  labels={'Total Cost': f'Total Cost ({CURRENCY})'},
                                  hover_data=['Location'])
-        st.plotly_chart(fig_scatter, use_container_width=True)
+        st.plotly_chart(fig, width="container")
 
     # --- Top 5 Locations ---
     st.divider()
@@ -132,16 +132,20 @@ if os.path.isfile(RAWDATA):
         text="Total Cost"
     )
     fig_top_locations.update_traces(texttemplate='%{text:.2f}', textposition='outside')
-    st.plotly_chart(fig_top_locations, use_container_width=True)
+    st.plotly_chart(fig_top_locations, width="container")
 
     # --- Raw Data with Edit Option ---
     with st.expander("📂 View & Edit Raw Data Log"):
-        edited_df = st.data_editor(df.sort_values(by="Date", ascending=False), num_rows="dynamic")
-        st.markdown("### ⚡ Save Edited Data")
-        if st.button("💾 Save Changes"):
-            edited_df.to_csv(RAWDATA, index=False)
-            st.success("✅ Changes saved successfully!")
+    edited_df = st.data_editor(
+        df.sort_values(by="Date", ascending=False),
+        num_rows="dynamic",
+        editable=True
+    )
+    if st.button("💾 Save Changes"):
+        edited_df.to_csv(RAWDATA, index=False)
+        st.success("✅ Changes saved successfully!")
 
 else:
     st.info("Awaiting data... Log a session above to see the analysis!")
+
 

@@ -42,15 +42,20 @@ st.markdown("""
 # =========================
 # LOAD DATA
 # =========================
+EXPECTED_COLUMNS = [
+    "Date", "Provider", "Location",
+    "Type", "kWh", "Total Cost",
+    "Cost_per_kWh", "Month"
+]
+
 if os.path.isfile(RAWDATA):
     df = pd.read_csv(RAWDATA)
     df["Date"] = pd.to_datetime(df["Date"])
-    df["Month"] = df["Date"].dt.to_period("M").astype(str)
 else:
-    df = pd.DataFrame(columns=[
-        "Date", "Provider", "Location",
-        "Type", "kWh", "Total Cost", "Cost_per_kWh", "Month"
-    ])
+    df = pd.DataFrame(columns=EXPECTED_COLUMNS)
+
+if not df.empty:
+    df["Month"] = df["Date"].dt.to_period("M").astype(str)
 
 # =========================
 # SIDEBAR FILTER
@@ -61,6 +66,7 @@ with st.sidebar:
     if not df.empty:
         months = sorted(df["Month"].unique(), reverse=True)
         selected_month = st.selectbox("Month", ["All"] + months)
+
         if selected_month != "All":
             df = df[df["Month"] == selected_month]
 
@@ -128,12 +134,12 @@ with tab_log:
                 new_row = pd.DataFrame([{
                     "Date": pd.to_datetime(date_val),
                     "Provider": provider,
-                    "Location": location,
+                    "Location": location.strip(),
                     "Type": output_type,
                     "kWh": kwh_val,
                     "Total Cost": total_cost,
                     "Cost_per_kWh": round(total_cost / kwh_val, 3),
-                    "Month": pd.to_datetime(date_val).to_period("M").astype(str)
+                    "Month": str(pd.to_datetime(date_val).to_period("M"))
                 }])
 
                 if os.path.isfile(RAWDATA):
@@ -142,6 +148,7 @@ with tab_log:
                     new_row.to_csv(RAWDATA, index=False)
 
                 st.success("Charging session saved")
+                st.rerun()
 
 # =========================
 # TAB 2 — OVERVIEW
@@ -178,6 +185,7 @@ with tab_analysis:
 
         with col1:
             daily_df = df.groupby(df["Date"].dt.date)["Total Cost"].sum().reset_index()
+
             fig_daily = px.bar(
                 daily_df,
                 x="Date",
@@ -211,11 +219,12 @@ with tab_analysis:
 # =========================
 with tab_location:
 
-    if df.empty:
-        st.info("No data available yet.")
+    if df.empty or df["Location"].dropna().empty:
+        st.info("No location data available yet.")
     else:
         top_locations = (
-            df.groupby("Location")["Total Cost"]
+            df[df["Location"].notna() & (df["Location"] != "")]
+            .groupby("Location")["Total Cost"]
             .sum()
             .sort_values(ascending=False)
             .head(5)
@@ -248,3 +257,4 @@ with tab_data:
         if st.button("Save Changes"):
             edited_df.to_csv(RAWDATA, index=False)
             st.success("Data saved successfully")
+            st.rerun()

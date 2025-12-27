@@ -95,6 +95,22 @@ if os.path.isfile(FILE_NAME):
     # GRAPHS
     col_a, col_b = st.columns(2)
 
+    # --- Top 5 Locations ---
+st.divider()
+st.subheader("📍 Top 5 Locations by Total Cost")
+
+top_locations = df.groupby("Location")["Total Cost"].sum().sort_values(ascending=False).head(5).reset_index()
+fig_top_locations = px.bar(
+    top_locations,
+    x="Location",
+    y="Total Cost",
+    title=f"Top 5 Locations by Total Cost ({CURRENCY})",
+    color="Total Cost",
+    color_continuous_scale='Viridis'
+)
+st.plotly_chart(fig_top_locations, use_container_width=True)
+
+
     with col_a:
         daily_df = df.groupby(df['Date'].dt.date)['Total Cost'].sum().reset_index()
         fig_daily = px.bar(daily_df, x='Date', y='Total Cost', 
@@ -126,3 +142,4 @@ if os.path.isfile(FILE_NAME):
             st.success("✅ Changes saved successfully!")
 else:
     st.info("Awaiting data... Log a session above to see the analysis!")
+

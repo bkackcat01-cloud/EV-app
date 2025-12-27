@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.express as px
 import pydeck as pdk
 from geopy.geocoders import Nominatim
-from datetime import datetime
 import time
 
 # ===============================
@@ -31,56 +30,54 @@ df = load_data()
 st.title("⚡ Malaysia EV Charging Analytics")
 
 if df.empty:
-    st.error("CSV is empty or not found.")
+    st.error("CSV is empty or missing.")
     st.stop()
 
 # ===============================
-# FREE AUTO GEOCODING (OSM)
+# GEO-CODING (FREE OSM)
 # ===============================
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def geocode_locations(locations):
-    geolocator = Nominatim(user_agent="ev-charging-app")
+    geolocator = Nominatim(user_agent="ev-charging-dashboard")
     coords = {}
 
     for loc in locations:
         try:
-            geo = geolocator.geocode(f"{loc}, Malaysia")
-            if geo:
-                coords[loc] = (geo.latitude, geo.longitude)
-            else:
-                coords[loc] = (None, None)
-            time.sleep(1)  # respect free API rate
-        except:
+            geo = geolocator.geocode(f"{loc}, Malaysia", timeout=10)
+            coords[loc] = (geo.latitude, geo.longitude) if geo else (None, None)
+            time.sleep(0.7)  # safer rate
+        except Exception:
             coords[loc] = (None, None)
 
     return coords
 
-
 if "Latitude" not in df.columns or "Longitude" not in df.columns:
-    st.info("📍 Auto-geocoding locations (free OpenStreetMap)")
+    st.info("📍 Auto-geocoding locations (OpenStreetMap)")
     loc_map = geocode_locations(df["Location"].dropna().unique())
     df["Latitude"] = df["Location"].map(lambda x: loc_map.get(x, (None, None))[0])
     df["Longitude"] = df["Location"].map(lambda x: loc_map.get(x, (None, None))[1])
 
 # ===============================
-# DERIVED FEATURES
+# FEATURE ENGINEERING
 # ===============================
-df["Cost_per_kWh"] = df["Total Cost"] / df["kWh"]
+df["Cost_per_kWh"] = (df["Total Cost"] / df["kWh"]).replace([float("inf")], 0)
 
-# Session duration proxy (if no time)
-df["Session_Duration_Proxy"] = df["kWh"] / df.groupby("Type")["kWh"].transform("mean")
+# Safe session duration proxy
+mean_kwh = df.groupby("Type")["kWh"].transform("mean").replace(0, pd.NA)
+df["Session_Duration_Proxy"] = (df["kWh"] / mean_kwh).fillna(0)
 
-df["Hour"] = df["Date"].dt.hour
-df["Day"] = df["Date"].dt.day_name()
+# Time features (safe)
+df["Hour"] = df["Date"].dt.hour.fillna(-1).astype(int)
+df["Day"] = df["Date"].dt.day_name().fillna("Unknown")
 
 # ===============================
 # TABS
 # ===============================
 tab_insights, tab_location = st.tabs(["📊 Insights", "📍 Locations"])
 
-# ======================================================
+# ===============================
 # INSIGHTS TAB
-# ======================================================
+# ===============================
 with tab_insights:
     col1, col2 = st.columns(2)
 
@@ -91,63 +88,64 @@ with tab_insights:
             .reset_index(name="Total Cost")
         )
 
-        fig_daily = px.bar(
-            daily_df,
-            x="Date",
-            y="Total Cost",
-            title="📅 Daily Charging Spend (MYR)"
+        st.plotly_chart(
+            px.bar(daily_df, x="Date", y="Total Cost",
+                   title="📅 Daily Charging Spend (MYR)"),
+            use_container_width=True
         )
-        st.plotly_chart(fig_daily, use_container_width=True)
 
-        fig_type = px.pie(
-            df,
-            names="Type",
-            values="Total Cost",
-            hole=0.5,
-            title="🔌 AC vs DC Cost Distribution"
+        st.plotly_chart(
+            px.pie(df, names="Type", values="Total Cost",
+                   hole=0.5, title="🔌 AC vs DC Cost Split"),
+            use_container_width=True
         )
-        st.plotly_chart(fig_type, use_container_width=True)
 
     with col2:
-        fig_scatter = px.scatter(
-            df,
-            x="kWh",
-            y="Total Cost",
-            color="Provider",
-            size="Cost_per_kWh",
-            title="💰 Cost vs Energy",
-            hover_data=["Location"]
+        st.plotly_chart(
+            px.scatter(
+                df,
+                x="kWh",
+                y="Total Cost",
+                color="Provider",
+                size="Cost_per_kWh",
+                hover_data=["Location"],
+                title="💰 Cost vs Energy"
+            ),
+            use_container_width=True
         )
-        st.plotly_chart(fig_scatter, use_container_width=True)
 
-        fig_duration = px.box(
-            df,
-            x="Type",
-            y="Session_Duration_Proxy",
-            title="⏱ Session Duration Proxy (AC vs DC)"
+        st.plotly_chart(
+            px.box(
+                df,
+                x="Type",
+                y="Session_Duration_Proxy",
+                title="⏱ Session Duration Proxy"
+            ),
+            use_container_width=True
         )
-        st.plotly_chart(fig_duration, use_container_width=True)
 
-    # Heatmap
     heat_df = (
-        df.groupby(["Day", "Hour"])
+        df[df["Hour"] >= 0]
+        .groupby(["Day", "Hour"])
         .size()
         .reset_index(name="Sessions")
     )
 
-    fig_heat = px.density_heatmap(
-        heat_df,
-        x="Hour",
-        y="Day",
-        z="Sessions",
-        color_continuous_scale="Turbo",
-        title="🔥 Charging Behavior Heatmap (Day vs Hour)"
+    st.plotly_chart(
+        px.density_heatmap(
+            heat_df,
+            x="Hour",
+            y="Day",
+            z="Sessions",
+            color_continuous_scale="Turbo",
+            title="🔥 Charging Behavior Heatmap (Day × Hour)"
+        ),
+        use_container_width=True
     )
-    st.plotly_chart(fig_heat, use_container_width=True)
 
-# ======================================================
-# LOCATION TAB — BIG POPUPS MAP
-# ======================================================
+# ===============================
+# LOCATION TAB — BIG POPUPS
+# ===============================
 with tab_location:
     loc_stats = (
         df.dropna(subset=["Latitude", "Longitude"])
@@ -165,8 +163,6 @@ with tab_location:
     if loc_stats.empty:
         st.warning("No valid geocoded locations.")
     else:
-        st.subheader("📍 Charging Sessions by Location")
-
         loc_stats["popup"] = loc_stats.apply(
             lambda r: (
                 f"<b>{r.Location}</b><br/>"
@@ -204,8 +200,7 @@ with tab_location:
                     "color": "black",
                     "fontSize": "14px",
                     "padding": "12px",
-                    "borderRadius": "10px",
-                    "boxShadow": "0 6px 18px rgba(0,0,0,0.25)"
+                    "borderRadius": "10px"
                 }
             }
         )

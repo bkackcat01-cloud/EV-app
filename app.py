@@ -164,16 +164,15 @@ with tab_overview:
         m3.metric("Energy Used", f"{df['kWh'].sum():.1f} kWh")
         m4.metric("Sessions", len(df))
 
-# --- Check if data exists ---
-if os.path.isfile(RAWDATA):
-    df = pd.read_csv(RAWDATA)
-    df['Date'] = pd.to_datetime(df['Date'])
-    df['Location'] = df['Location'].astype(str)
-    df['Weekday'] = df['Date'].dt.day_name()
+# =========================
+# TAB 3 — ANALYSIS
+# =========================
+with tab_analysis:
 
-    st.subheader("📊 Insights")
-
-    col1, col2 = st.columns(2)
+    if df.empty:
+        st.info("No data available yet.")
+    else:
+        col1, col2 = st.columns(2)
 
     with col1:
         # --- Daily Spending ---
@@ -242,5 +241,47 @@ if os.path.isfile(RAWDATA):
         )
         st.plotly_chart(fig_heatmap, use_container_width=True)
 
-else:
-    st.info("No data yet. Record a session to see insights.")
+# =========================
+# TAB 4 — LOCATIONS
+# =========================
+with tab_location:
+
+    if df.empty or df["Location"].dropna().empty:
+        st.info("No location data available yet.")
+    else:
+        top_locations = (
+            df[df["Location"].notna() & (df["Location"] != "")]
+            .groupby("Location")["Total Cost"]
+            .sum()
+            .sort_values(ascending=False)
+            .head(5)
+            .reset_index()
+        )
+
+        fig_loc = px.bar(
+            top_locations,
+            x="Location",
+            y="Total Cost",
+            text="Total Cost",
+            title="Top 5 Locations by Spending"
+        )
+        fig_loc.update_traces(texttemplate="%{text:.2f}", textposition="outside")
+        st.plotly_chart(fig_loc, use_container_width=True)
+
+# =========================
+# TAB 5 — DATA
+# =========================
+with tab_data:
+
+    if df.empty:
+        st.info("No data available yet.")
+    else:
+        edited_df = st.data_editor(
+            df.sort_values("Date", ascending=False),
+            num_rows="dynamic"
+        )
+
+        if st.button("Save Changes"):
+            edited_df.to_csv(RAWDATA, index=False)
+            st.success("Data saved successfully")
+            st.rerun()

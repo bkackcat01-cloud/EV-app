@@ -220,33 +220,57 @@ with tab_locations:
             .dropna(subset=["Latitude","Longitude"])
         )
 
-        st.subheader("📍 Charging Sessions Map")
+        if loc_stats.empty:
+            st.warning("No geocoded locations available.")
+        else:
+            st.subheader("📍 Charging Sessions Map")
 
-        loc_stats["popup"] = loc_stats.apply(
-            lambda r: f"{r.Location}\nSessions: {r.Sessions}\nCost: MYR {r.Total_Cost:.2f}",
-            axis=1
-        )
+            # BIG, readable popup content
+            loc_stats["popup"] = loc_stats.apply(
+                lambda r: (
+                    f"<b>{r.Location}</b><br/>"
+                    f"🔌 Sessions: {r.Sessions}<br/>"
+                    f"⚡ Energy: {r.Total_KWh:.1f} kWh<br/>"
+                    f"💰 Total Cost: MYR {r.Total_Cost:.2f}"
+                ),
+                axis=1
+            )
 
-        deck = pdk.Deck(
-            initial_view_state=pdk.ViewState(
-                latitude=loc_stats["Latitude"].mean(),
-                longitude=loc_stats["Longitude"].mean(),
-                zoom=6
-            ),
-            layers=[
-                pdk.Layer(
-                    "ScatterplotLayer",
-                    data=loc_stats,
-                    get_position=["Longitude","Latitude"],
-                    get_radius="Sessions * 120",
-                    get_fill_color=[0, 160, 255],
-                    pickable=True
-                )
-            ],
-            tooltip={"text": "{popup}"}
-        )
+            deck = pdk.Deck(
+                initial_view_state=pdk.ViewState(
+                    latitude=loc_stats["Latitude"].mean(),
+                    longitude=loc_stats["Longitude"].mean(),
+                    zoom=6,
+                    pitch=0
+                ),
+                layers=[
+                    pdk.Layer(
+                        "ScatterplotLayer",
+                        data=loc_stats,
+                        get_position=["Longitude","Latitude"],
+                        get_radius="Sessions * 800",   # 👈 BIG circles
+                        radius_min_pixels=15,          # 👈 Always visible
+                        radius_max_pixels=80,
+                        get_fill_color=[0, 140, 255, 180],
+                        get_line_color=[255, 255, 255],
+                        line_width_min_pixels=2,
+                        pickable=True
+                    )
+                ],
+                tooltip={
+                    "html": "{popup}",
+                    "style": {
+                        "backgroundColor": "white",
+                        "color": "black",
+                        "fontSize": "14px",
+                        "padding": "10px",
+                        "borderRadius": "8px",
+                        "boxShadow": "0 4px 12px rgba(0,0,0,0.15)"
+                    }
+                }
+            )
 
-        st.pydeck_chart(deck)
+            st.pydeck_chart(deck, use_container_width=True)
 
 # =========================
 # TAB — DATA
@@ -260,3 +284,4 @@ with tab_data:
             edited.to_csv(RAWDATA, index=False)
             st.success("Saved")
             st.rerun()
+

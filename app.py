@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
-from datetime import date
 
 # =========================
 # CONFIG
@@ -42,6 +41,12 @@ st.markdown("""
 EXPECTED_COLUMNS = ["Date","Provider","Location","Type","kWh","Total Cost","Cost_per_kWh","Month"]
 if not os.path.isfile(RAWDATA) or os.path.getsize(RAWDATA) == 0:
     pd.DataFrame(columns=EXPECTED_COLUMNS).to_csv(RAWDATA, index=False)
+
+# =========================
+# SESSION STATE FOR RERUN
+# =========================
+if "submitted" not in st.session_state:
+    st.session_state.submitted = False
 
 # =========================
 # LOAD DATA
@@ -120,7 +125,6 @@ with tab_log:
 
         if submitted:
             provider = other_provider.strip() if selected_provider == "Other" else selected_provider
-
             if not provider:
                 st.error("Please specify provider name.")
             else:
@@ -136,7 +140,14 @@ with tab_log:
                 }])
                 new_row.to_csv(RAWDATA, mode="a", header=False, index=False)
                 st.success("Charging session saved")
-                st.runtime.scriptrunner.script_request_rerun()
+                st.session_state.submitted = True
+
+# =========================
+# REFRESH DATA IF NEW SESSION
+# =========================
+if st.session_state.submitted:
+    df = load_data()
+    st.session_state.submitted = False
 
 # =========================
 # TAB 2 — OVERVIEW
@@ -161,22 +172,18 @@ with tab_insights:
         col1, col2 = st.columns(2)
 
         with col1:
-            # Daily Spending
             daily_df = df.groupby(df["Date"].dt.date)["Total Cost"].sum().reset_index()
             fig_daily = px.bar(daily_df, x="Date", y="Total Cost", title="Daily Spending")
             st.plotly_chart(fig_daily, use_container_width=True)
 
-            # AC vs DC Pie
             fig_type = px.pie(df, names="Type", hole=0.5, title="AC vs DC")
             st.plotly_chart(fig_type, use_container_width=True)
 
-            # Session Duration Proxy
             df['Duration_Proxy'] = df['Total Cost'] / df['kWh']
             fig_duration = px.histogram(df, x="Duration_Proxy", nbins=20, title="Session Duration Proxy (Cost per kWh)")
             st.plotly_chart(fig_duration, use_container_width=True)
 
         with col2:
-            # Cost vs Energy Scatter
             fig_scatter = px.scatter(
                 df, x="kWh", y="Total Cost", color="Provider",
                 size="Cost_per_kWh", title="Cost vs Energy",
@@ -184,7 +191,6 @@ with tab_insights:
             )
             st.plotly_chart(fig_scatter, use_container_width=True)
 
-            # AC vs DC Cost Comparison
             ac_dc_df = df.groupby("Type")["Total Cost"].mean().reset_index()
             fig_ac_dc = px.bar(
                 ac_dc_df, x="Type", y="Total Cost",
@@ -193,7 +199,6 @@ with tab_insights:
             )
             st.plotly_chart(fig_ac_dc, use_container_width=True)
 
-            # Heatmap: Charging Behavior by Weekday
             if "Day" in df.columns:
                 heatmap_df = df.groupby(["Day","Type"])["kWh"].sum().reset_index()
                 fig_heatmap = px.density_heatmap(
@@ -232,4 +237,4 @@ with tab_data:
         if st.button("Save Changes"):
             edited_df.to_csv(RAWDATA, index=False)
             st.success("Data saved successfully")
-            st.runtime.scriptrunner.script_request_rerun()
+            st.session_state.submitted = True

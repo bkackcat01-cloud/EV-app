@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
-from geopy.geocoders import Nominatim # Import the geocoding tool
+from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 
 # =========================
@@ -49,23 +49,31 @@ if not os.path.isfile(RAWDATA) or os.path.getsize(RAWDATA) == 0:
     pd.DataFrame(columns=EXPECTED_COLUMNS).to_csv(RAWDATA, index=False)
 
 # =========================
-# LOAD DATA
+# LOAD DATA (FIXED)
 # =========================
 def load_data():
     try:
         df = pd.read_csv(RAWDATA)
-        # Ensure new coordinate columns exist
+        
+        # 1. Ensure coordinate columns exist
         if "Latitude" not in df.columns: df["Latitude"] = pd.NA
         if "Longitude" not in df.columns: df["Longitude"] = pd.NA
         
         if not df.empty:
+            # 2. Process Data Types
             df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
             df["Month"] = df["Date"].dt.to_period("M").astype(str)
             df["Day"] = df["Date"].dt.day_name()
             df["Latitude"] = pd.to_numeric(df["Latitude"], errors='coerce')
             df["Longitude"] = pd.to_numeric(df["Longitude"], errors='coerce')
 
-        df = df.reindex(columns=EXPECTED_COLUMNS + ["Month", "Day"])
+        # 3. Clean Reindexing (Prevents Duplicate 'Month' Column error)
+        # We assume EXPECTED_COLUMNS already has 'Month', so we only add 'Day'
+        cols_to_use = EXPECTED_COLUMNS + ["Day"]
+        # Remove duplicates just in case to be safe
+        cols_to_use = list(dict.fromkeys(cols_to_use))
+        
+        df = df.reindex(columns=cols_to_use)
         return df
     except Exception as e:
         st.error(f"Error loading data: {e}")
@@ -81,16 +89,13 @@ def get_coordinates(location_name):
     Returns (lat, lon) for a given location name.
     """
     try:
-        # User agent is required by Nominatim policy
         geolocator = Nominatim(user_agent="my_ev_tracker_v1")
-        # We append "Malaysia" to bias the search locally
         search_query = f"{location_name}, Malaysia"
         location = geolocator.geocode(search_query)
         if location:
             return location.latitude, location.longitude
         return None, None
     except Exception as e:
-        # Return None if connection fails or not found
         return None, None
 
 # =========================
@@ -99,7 +104,9 @@ def get_coordinates(location_name):
 filtered_df = df.copy()
 with st.sidebar:
     st.header("Filters")
+    # Check if Month column exists and acts as a Series (single column)
     if not df.empty and "Month" in df.columns:
+        # Convert to list to avoid ambiguous truth value errors
         unique_months = df["Month"].dropna().unique().tolist()
         try:
             months = sorted(unique_months, reverse=True)
@@ -168,7 +175,6 @@ with tab_log:
                 final_lat = lat_val
                 final_lon = lon_val
                 
-                # If user didn't type coords but gave a location name
                 if (final_lat == 0.00 or final_lon == 0.00) and location_name.strip():
                     with st.spinner(f"Searching map for '{location_name}'..."):
                         found_lat, found_lon = get_coordinates(location_name)
@@ -181,7 +187,6 @@ with tab_log:
                             final_lat = pd.NA
                             final_lon = pd.NA
                 elif final_lat == 0.00 and final_lon == 0.00:
-                    # Case where user didn't input coords OR location name (or just didn't care)
                     final_lat = pd.NA
                     final_lon = pd.NA
 

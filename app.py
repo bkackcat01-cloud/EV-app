@@ -331,26 +331,46 @@ with tab_data:
     if df.empty:
         st.info("No data.")
     else:
-        display_cols = ["Date", "Provider", "Location", "Latitude", "Longitude", "Type", "kWh", "Total Cost", "Month"]
-        existing_cols = [c for c in display_cols if c in df.columns]
+        # We need all columns in EXPECTED_COLUMNS to avoid "not in index" errors
+        # But we can hide the ones we don't want to see in the UI
         
         edited_df = st.data_editor(
-            df.sort_values("Date", ascending=False)[existing_cols], 
+            df.sort_values("Date", ascending=False), 
             num_rows="dynamic",
             use_container_width=True,
+            column_order=EXPECTED_COLUMNS, # Force specific order
             column_config={
-                "Latitude": st.column_config.NumberColumn(format="%.5f"),
-                "Longitude": st.column_config.NumberColumn(format="%.5f"),
+                "Date": st.column_config.DateColumn("Date", format="YYYY-MM-DD"),
+                "Latitude": st.column_config.NumberColumn("Lat", format="%.5f"),
+                "Longitude": st.column_config.NumberColumn("Lon", format="%.5f"),
+                "Cost_per_kWh": st.column_config.NumberColumn("Cost/kWh", disabled=True, format="%.3f"),
+                "Month": st.column_config.TextColumn("Month", disabled=True),
             }
         )
         
         if st.button("Save Changes to Google Sheet", type="primary"):
             try:
-                # Prepare clean DF for saving
-                final_save_df = edited_df[EXPECTED_COLUMNS].copy()
-                final_save_df["Date"] = pd.to_datetime(final_save_df["Date"]).dt.strftime('%Y-%m-%d')
+                # 1. Recalculate derived columns for the entire edited dataframe
+                edited_df["Date"] = pd.to_datetime(edited_df["Date"])
                 
+                # Apply the calculation safely
+                edited_df["Cost_per_kWh"] = edited_df.apply(
+                    lambda x: round(x["Total Cost"] / x["kWh"], 3) if pd.notnull(x["kWh"]) and x["kWh"] > 0 else 0, 
+                    axis=1
+                )
+                
+                # Update Month based on possibly new Dates
+                edited_df["Month"] = edited_df["Date"].dt.to_period("M").astype(str)
+                
+                # 2. Filter to only the columns the Sheet expects
+                final_save_df = edited_df[EXPECTED_COLUMNS].copy()
+                
+                # 3. Format Date for Google Sheets
+                final_save_df["Date"] = final_save_df["Date"].dt.strftime('%Y-%m-%d')
+                
+                # 4. Upload
                 conn.update(worksheet="Sheet1", data=final_save_df)
+                
                 st.toast("Google Sheet updated!", icon="☁️")
                 st.cache_data.clear()
                 st.rerun()
